@@ -1,15 +1,15 @@
 import shutil
-import asyncio
 import os
 import sys
 
-from azure.storage.blob.aio import BlobServiceClient
+from azure.storage.blob import BlobServiceClient
 
 
 LOCAL_BLOBS = False
 VERBOSE = False
 
 
+# This is a non-async version
 class BlobManager:
 
     def __init__(self, storage_account, storage_key, input_container="harmony-input",
@@ -27,12 +27,12 @@ class BlobManager:
             self.input_client = self.blob_service_client.get_container_client(input_container)
             self.output_client = self.blob_service_client.get_container_client(output_container)
 
-    async def close(self):
+    """async def close(self):
         if not LOCAL_BLOBS:
             await asyncio.gather(self.input_client.close(), self.output_client.close(),
-                                 self.blob_service_client.close())
+                                 self.blob_service_client.close())"""
 
-    async def get_from_blob(self, source_path, dest_path, blob_id):
+    def get_from_blob(self, source_path, dest_path, blob_id):
         """
         :param source_path: path inside blob
         :param dest_path: local path to download to
@@ -55,12 +55,12 @@ class BlobManager:
             if VERBOSE:
                 print(f"Downloading {source_path}")
             with open(dest_path, "wb") as file:
-                blob_stream = await blob_client.download_blob()
-                file.write(await blob_stream.readall())
+                blob_stream = blob_client.download_blob()
+                file.write(blob_stream.readall())
             if VERBOSE:
                 print(f"Downloaded {source_path}")
 
-    async def put_in_blob(self, source_path, dest_path, blob_id):
+    def put_in_blob(self, source_path, dest_path, blob_id):
         """
         :param source_path: local path to upload
         :param dest_path: path inside blob
@@ -84,11 +84,11 @@ class BlobManager:
             if VERBOSE:
                 print(f"Uploading {source_path}")
             with open(source_path, "rb") as file:
-                await self.output_client.upload_blob(name=blob_id + dest_path, data=file.read(), overwrite=True)
+                self.output_client.upload_blob(name=blob_id + dest_path, data=file.read(), overwrite=True)
             if VERBOSE:
                 print(f"Uploaded {source_path}")
 
-    async def list_blob(self, blob_id, path=None):
+    def list_blob(self, blob_id, path=None, container_type="output"):
         """
         :param blob_id:
         :param path: should be path to folder, without / at the end
@@ -102,31 +102,37 @@ class BlobManager:
             else:
                 return []
         else:
-            if path is None:
-                iterator = self.output_client.list_blobs(blob_id)
-            else:
-                iterator = self.output_client.list_blobs(f"{blob_id}/{path}/")
-            return [obj.name.replace(f"{blob_id}/", "") async for obj in iterator]
+            container_client = None
+            if container_type == "output":
+                container_client = self.output_client
+            elif container_type == "input":
+                container_client = self.input_client
 
-    async def delete_folder_in_blob(self, blob_id, folder):
+            if path is None:
+                iterator = container_client.list_blobs(blob_id)
+            else:
+                iterator = container_client.list_blobs(f"{blob_id}/{path}/")
+            return [obj.name.replace(f"{blob_id}/", "") for obj in iterator]
+
+    def delete_folder_in_blob(self, blob_id, folder):
         if LOCAL_BLOBS:
             shutil.rmtree(os.path.join(blob_id, folder))
         else:
-            blob_files = await self.list_blob(blob_id, folder)
+            blob_files = self.list_blob(blob_id, folder)
             for blob_file in blob_files:
-                await self.output_client.delete_blob(f"{blob_id}/{blob_file}")
+                self.output_client.delete_blob(f"{blob_id}/{blob_file}")
 
-    async def delete_file_in_blob(self, blob_id, filename):
+    def delete_file_in_blob(self, blob_id, filename):
         if LOCAL_BLOBS:
             os.remove(os.path.join(blob_id, filename))
         else:
-            await self.output_client.delete_blob(f"{blob_id}/{filename}")
+            self.output_client.delete_blob(f"{blob_id}/{filename}")
 
-    async def rename_file_in_blob(self, blob_id, old_name, new_name):
+    def rename_file_in_blob(self, blob_id, old_name, new_name):
         if LOCAL_BLOBS:
             os.rename(os.path.join(blob_id, old_name), os.path.join(blob_id, old_name))
         else:
             blob_client = self.output_client.get_blob_client(f"{blob_id}/{old_name}")
             new_blob_client = self.output_client.get_blob_client(f"{blob_id}/{new_name}")
-            await new_blob_client.start_copy_from_url(blob_client.url)
-            await blob_client.delete_blob()
+            new_blob_client.start_copy_from_url(blob_client.url)
+            blob_client.delete_blob()

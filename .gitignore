@@ -1,2 +1,4 @@
 .idea/*
 venv/*
+__pycache__/*
+harmony/__pycache__/*
