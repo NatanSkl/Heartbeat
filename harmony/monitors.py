@@ -1,8 +1,6 @@
 import os
 from abc import ABC
 import requests
-from PyPDF2 import PdfFileReader, PdfFileWriter
-
 from monitoring import Monitor, PulseError
 from blobs import BlobManager
 
@@ -13,7 +11,7 @@ MONITOR_BLOB = "harmony_monitoring"
 class HarmonyMonitor(Monitor, ABC):
     def __init__(self):
         super().__init__()
-        self.blob_manager1: BlobManager = None
+        self.blob_manager: BlobManager = None
 
     def get_address(self, target, env):
         if env == "local":
@@ -30,7 +28,7 @@ class HarmonyMonitor(Monitor, ABC):
             return address
 
     def clear_blob(self):
-        self.blob_manager1.delete_folder_in_blob(MONITOR_BLOB, None)
+        self.blob_manager.delete_folder_in_blob(MONITOR_BLOB, None)
 
 
 class ConvertToPdfMonitor(HarmonyMonitor):
@@ -38,14 +36,6 @@ class ConvertToPdfMonitor(HarmonyMonitor):
         super().__init__()
         self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
                                         "harmony-input", "ocr-microservice-output")
-
-    def test_file(self, file):
-        # TODO add prod support
-        address = self.get_address("CONVERT_TO_PDF", "test")
-        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB}, headers={"Content-Type": "application/json"})
-        print(response.text)
-        files = self.blob_manager.list_blob(MONITOR_BLOB)
-        assert("in.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}")
 
     def check_pulses(self):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
@@ -58,6 +48,16 @@ class ConvertToPdfMonitor(HarmonyMonitor):
                 print(e)
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
+
+    def test_file(self, file):
+        # TODO add prod support
+        address = self.get_address("CONVERT_TO_PDF", "test")
+        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB}, headers={"Content-Type": "application/json"})
+        print(response.text)
+        files = self.blob_manager.list_blob(MONITOR_BLOB)
+        assert "in.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}"
+
+
 
 
 
@@ -75,9 +75,9 @@ class IsSearchable(HarmonyMonitor):
             is_searchable = self.test_file(file)
 
             if is_searchable:
-                assert (file.startwith("searchable") , f"The file isn't searchable -> {file}")
+                assert file.startwith("searchable") , f"The file isn't searchable -> {file}"
             else:
-                assert (file.startwith("not-searchable") , f"The file searchable -> {file}")
+                assert file.startwith("not-searchable") , f"The file searchable -> {file}"
 
     def test_file(self, file):
         self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
@@ -101,41 +101,80 @@ class Split_pdf(HarmonyMonitor):
         super().__init__()
         self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
                                         "harmony-input", "ocr-microservice-output")
-    def split(self,path,name_of_split):
-        output_dir = os.path.join(os.getcwd(), name_of_split)
-        os.makedirs(output_dir, exist_ok=True)
-
-        pdf = PdfFileReader(path)
-        for page in range(pdf.getNumPages()):
-            pdf_writer = PdfFileWriter()
-            pdf_writer.addPage(pdf.getPage(page))
-
-            output = os.path.join(output_dir, f'{name_of_split}{page}.pdf')
-            with open(output, 'wb') as output_pdf:
-                pdf_writer.write(output_pdf)
-
-
 
     def check_pulses(self):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
-        for file in files:
+        is_split = list(filter(lambda x: x.startswith("split"), files))
+        for file in is_split:
             try:
-                split_file = self.test_file(file)
-                if split_file:
-                    assert split_file == "split", f"The file isn't split correctly -> {file}"
+                self.test_file(file)
+                self.clear_blob()
             except Exception as e:
                 print(e)
-
-
+                pulse_error = PulseError(str(e), self.blob_manager.storage_account)
+                self.pulse_errors.append(pulse_error)
 
 
     def test_file(self,file):
+        self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
+        self.blob_manager.put_in_blob(file, file, MONITOR_BLOB)
+        os.remove(file)
         address = self.get_address("SPLIT_PDF", "test")
-        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB},
+        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB,"output_folder": "pdf_parts"},
+                                 headers={"Content-Type": "application/json"})
+
+
+        if response.ok:
+            files = self.blob_manager.list_blob(MONITOR_BLOB,"pdf_parts", container_type="output")
+            assert len(files) > 1, f"could not split pdf_parts -> {file}"
+
+
+class EngineMonitor(HarmonyMonitor):
+
+    def __init__(self, engine):
+        super().__init__()
+        self.engine = engine
+        # self.get_address(engine)
+        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
+                                        "harmony-input", "ocr-microservice-output")
+
+    def check_pulses(self):
+        files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
+        if self.engine == "RHYTHM":
+            is_process = list(filter(lambda x: x.startswith("searchable"), files))
+
+        else:
+            is_process = list(filter(lambda x: x.startswith("process"), files))
+
+        for file in is_process:
+            is_process = self.test_file(file)
+            self.clear_blob()
+
+            if is_process:
+                assert file.startwith("searchable") or file.startwith("process"), (f"The file isn't process to lsd ->"
+                                                                                   f" {file}")
+
+
+    def test_file(self,file):
+        self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
+        new_filename = file.replace("process", "").replace("searchable", "")
+        self.blob_manager.put_in_blob(file, new_filename, MONITOR_BLOB)
+        os.remove(file)
+        address = self.get_address(self.engine, "test")
+        response = requests.post(address,
+                                 json={"file_path": new_filename, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False},
                                  headers={"Content-Type": "application/json"})
 
         if response.ok:
-            print(f"File {file} processed successfully.")
+            files = self.blob_manager.list_blob(MONITOR_BLOB, "lsd_files", container_type="output")
+            assert len(files) > 0, f"could not process lsd files -> {file}"
+
+
+
+
+
+
+#EngineMonitor("DOCUMENTAI_PART"), EngineMonitor("AZUREDI_PART"), EngineMonitor("RHYTHM")
 
 
 
