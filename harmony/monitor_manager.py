@@ -1,8 +1,10 @@
-from monitors import ConvertToPdfMonitor, IsSearchable,Split_pdf,EngineMonitor
+from monitors import (ConvertToPdfMonitor, IsSearchable,Split_pdf,EngineMonitor,DocumentAiMonitor,AzureDiMonitor
+,RhythemMonitor,CombineMonitor,CombinePdfMonitor,CombineLsdMonitor)
 
 
-#monitors = [ConvertToPdfMonitor(),IsSearchable(),split_pdf(),EngineMonitor()]
-monitors = [EngineMonitor("RHYTHM")]
+monitors = [ConvertToPdfMonitor(),IsSearchable(),Split_pdf(),DocumentAiMonitor(),AzureDiMonitor()
+    ,RhythemMonitor(),CombinePdfMonitor(),CombineLsdMonitor]
+
 
 for monitor in monitors:
     monitor.check_pulses()

@@ -55,10 +55,7 @@ class ConvertToPdfMonitor(HarmonyMonitor):
         response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB}, headers={"Content-Type": "application/json"})
         print(response.text)
         files = self.blob_manager.list_blob(MONITOR_BLOB)
-        assert "in.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}"
-
-
-
+        assert "in.pdf" in files or "out.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}"
 
 
 class IsSearchable(HarmonyMonitor):
@@ -75,9 +72,9 @@ class IsSearchable(HarmonyMonitor):
             is_searchable = self.test_file(file)
 
             if is_searchable:
-                assert file.startwith("searchable") , f"The file isn't searchable -> {file}"
+                assert file.startswith("searchable") , f"The file isn't searchable -> {file}"
             else:
-                assert file.startwith("not-searchable") , f"The file searchable -> {file}"
+                assert file.startswith("not-searchable") , f"The file searchable -> {file}"
 
     def test_file(self, file):
         self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
@@ -127,6 +124,8 @@ class Split_pdf(HarmonyMonitor):
         if response.ok:
             files = self.blob_manager.list_blob(MONITOR_BLOB,"pdf_parts", container_type="output")
             assert len(files) > 1, f"could not split pdf_parts -> {file}"
+        else:
+            raise Exception(f"could not split a file {file}")
 
 
 class EngineMonitor(HarmonyMonitor):
@@ -168,13 +167,100 @@ class EngineMonitor(HarmonyMonitor):
         if response.ok:
             files = self.blob_manager.list_blob(MONITOR_BLOB, "lsd_files", container_type="output")
             assert len(files) > 0, f"could not process lsd files -> {file}"
+        else:
+            raise Exception(f"could not process a file {file}")
 
 
+class DocumentAiMonitor(EngineMonitor):
+    def __init__(self):
+        super().__init__("DOCUMENTAI_PART")
 
+class AzureDiMonitor(EngineMonitor):
+    def __init__(self):
+        super().__init__("AZUREDI_PART")
 
+class RhythemMonitor(EngineMonitor):
+    def __init__(self):
+        super().__init__("RHYTHM")
 
 
 #EngineMonitor("DOCUMENTAI_PART"), EngineMonitor("AZUREDI_PART"), EngineMonitor("RHYTHM")
+
+
+class CombineMonitor(HarmonyMonitor):
+    def __init__(self, in_type, output_name):
+        super().__init__()
+        self.in_type = in_type
+        self.output_name = output_name
+        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
+                                        "harmony-input", "ocr-microservice-output")
+
+    def check_pulses(self):
+        files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
+        address = self.get_address(self.in_type, "test")
+        if self.in_type == "COMBINE_LSD":
+            is_combine = list(filter(lambda x: x.endswith("lsd"), files))
+            payload_key = "ocr_folders"
+            payload_value = ["lsd_files"]
+            folder = "lsd_files"
+
+        else:
+            is_combine = list(filter(lambda x: x.endswith("png"), files))
+            payload_key = "images_folder"
+            payload_value = "images"
+            folder = "images"
+
+        for file in is_combine:
+            self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
+            self.blob_manager.put_in_blob(file, f"{folder}/{file}", MONITOR_BLOB)
+
+
+            os.remove(file)
+
+
+
+        response = requests.post(
+                address,
+                json={"file_path": file, "blob_id": MONITOR_BLOB,
+                      payload_key: payload_value},
+                headers={"Content-Type": "application/json"}
+            )
+
+        if response.ok:
+            files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="output")
+            assert self.output_name in files, f"could not combine files -> {folder}"
+        else:
+            raise Exception(f"could not combine a file {file}")
+
+
+
+
+        self.clear_blob()
+
+
+#CombineMonitor("COMBINE_PDF","out.pdf"), CombineMonitor("COMBINE_LSD","ocr.lsd")
+
+
+class CombinePdfMonitor(CombineMonitor):
+    def __init__(self):
+        super().__init__("COMBINE_PDF", "out.pdf")
+
+
+class CombineLsdMonitor(CombineMonitor):
+    def __init__(self):
+        super().__init__("COMBINE_LSD", "ocr.lsd")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
