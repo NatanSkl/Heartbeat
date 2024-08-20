@@ -37,21 +37,21 @@ class ConvertToPdfMonitor(HarmonyMonitor):
         self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
                                         "harmony-input", "ocr-microservice-output")
 
-    def check_pulses(self):
+    def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
         cvt_files = list(filter(lambda x: x.startswith("cvt"), files))
         for file in cvt_files:
             try:
-                self.test_file(file)
+                self.test_file(file, env)
                 self.clear_blob()
             except Exception as e:
                 print(e)
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
 
-    def test_file(self, file):
+    def test_file(self, file, env):
         # TODO add prod support
-        address = self.get_address("CONVERT_TO_PDF", "test")
+        address = self.get_address("CONVERT_TO_PDF", env)
         response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB}, headers={"Content-Type": "application/json"})
         print(response.text)
         files = self.blob_manager.list_blob(MONITOR_BLOB)

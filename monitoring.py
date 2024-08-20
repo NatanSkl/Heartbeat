@@ -11,7 +11,7 @@ class Monitor(ABC):
         pass
 
     @abstractmethod
-    def check_pulses(self):
+    def check_pulses(self, env):
         pass
 
 

@@ -108,7 +108,9 @@ class BlobManager:
             elif container_type == "input":
                 container_client = self.input_client
 
-            if path is None:
+            if blob_id is None:
+                iterator = container_client.list_blobs()
+            elif path is None:
                 iterator = container_client.list_blobs(blob_id)
             else:
                 iterator = container_client.list_blobs(f"{blob_id}/{path}/")
