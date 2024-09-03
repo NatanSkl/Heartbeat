@@ -11,13 +11,13 @@ MELOD_VERSION = "1.0.6.1"
 
 class MelodMonitor(Monitor):
 
-    def __init__(self,username,key):
+    def __init__(self, username, key):
         super().__init__()
         self.username = username
         self.key = key
-        self.blob_manager1 = BlobManager(username,key,
+        self.blob_manager1 = BlobManager(username, key,
                                         "ocr-microservice-output", "ocr-microservice-output")
-        self.blob_manager2 = BlobManager(username,key,
+        self.blob_manager2 = BlobManager(username, key,
                                         "melod-outputs", "melod-outputs")
 
     def get_address(self, target, env):
@@ -49,9 +49,11 @@ class MelodMonitor(Monitor):
 
                 output_files = self.blob_manager2.list_blob(new_container)
                 assert f"{new_container}.json" in output_files, "Expected output file is missing"
+                print(self.blob_manager2.list_blob(new_container))
 
                 self.blob_manager2.delete_file_in_blob(f"{new_container}.json")  # TODO verify this deletes
-                print()
+
+                print(self.blob_manager2.list_blob(f"{new_container}.json"))
 
             except Exception as e:
                 pulse_error = PulseError(str(e), self.blob_manager1.storage_account)

@@ -33,7 +33,7 @@ class HarmonyMonitor(Monitor, ABC):
 
 
 class ConvertToPdfMonitor(HarmonyMonitor):
-    def __init__(self,username,key):
+    def __init__(self, username, key):
         super().__init__()
         self.username = username
         self.key = key
@@ -62,7 +62,7 @@ class ConvertToPdfMonitor(HarmonyMonitor):
 
 
 class IsSearchableMonitor(HarmonyMonitor):
-    def __init__(self,username,key):
+    def __init__(self, username, key):
         super().__init__()
         self.username = username
         self.key = key
@@ -79,9 +79,9 @@ class IsSearchableMonitor(HarmonyMonitor):
                 is_searchable = self.test_file(file, env)
 
                 if is_searchable:
-                    assert file.startswith("searchable") , f"The file isn't searchable -> {file}"
+                    assert file.startswith("searchable"), f"The file isn't searchable -> {file}"
                 else:
-                    assert file.startswith("not-searchable") , f"The file searchable -> {file}"
+                    assert file.startswith("not-searchable"), f"The file searchable -> {file}"
             except Exception as e:
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
@@ -104,7 +104,7 @@ class IsSearchableMonitor(HarmonyMonitor):
 
 
 class SplitPdfMonitor(HarmonyMonitor):
-    def __init__(self,username,key):
+    def __init__(self, username, key):
         super().__init__()
         self.username = username
         self.key = key
@@ -138,7 +138,7 @@ class SplitPdfMonitor(HarmonyMonitor):
 
 
         if response.ok:
-            files = self.blob_manager.list_blob(MONITOR_BLOB,"pdf_parts", container_type="output")
+            files = self.blob_manager.list_blob(MONITOR_BLOB, "pdf_parts", container_type="output")
             assert len(files) > 1, f"could not split pdf_parts -> {file}"
         else:
             assert False, f"could not split to pdf -> file {file}"
@@ -171,9 +171,8 @@ class EngineMonitor(HarmonyMonitor):
                 is_process = self.test_file(file, env)
                 self.clear_blob()
 
-            # TODO check why file here is yellow, fix
-            if is_process:
-                assert file.startwith("searchable") or file.startwith("process"), (f"The file isn't process to lsd ->"
+                if is_process:
+                    assert file.startwith("searchable") or file.startwith("process"), (f"The file isn't process to lsd ->"
                                                                                        f" {file}")
         except Exception as e:
             pulse_error = PulseError(str(e), self.blob_manager.storage_account)
@@ -185,7 +184,8 @@ class EngineMonitor(HarmonyMonitor):
         self.blob_manager.put_in_blob(file, new_filename, MONITOR_BLOB)
         os.remove(file)
         address = self.get_address(self.engine, env)
-        params = {"file_path": new_filename, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False}
+        params = {"file_path": new_filename, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files",
+                  "output_images": False}
         response = deliver.post(address, params, self.username, self.key, self.input_container,
                                 self.output_container)
 
@@ -254,8 +254,7 @@ class CombineMonitor(HarmonyMonitor):
 
                 os.remove(file)
 
-            # TODO check if None instead of file works here
-            params = {"file_path": file, "blob_id": MONITOR_BLOB, payload_key: payload_value}
+            params = {"file_path": None, "blob_id": MONITOR_BLOB, payload_key: payload_value}
             response = deliver.post(address, params, self.username, self.key, self.input_container,
                                     self.output_container)
 
@@ -277,5 +276,5 @@ class CombinePdfMonitor(CombineMonitor):
 
 
 class CombineLsdMonitor(CombineMonitor):
-    def __init__(self,username, key):
+    def __init__(self, username, key):
         super().__init__("COMBINE_LSD", "ocr.lsd", username, key)
