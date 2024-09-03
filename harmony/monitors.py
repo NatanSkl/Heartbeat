@@ -3,6 +3,7 @@ from abc import ABC
 import requests
 from monitoring import Monitor, PulseError
 from blobs import BlobManager
+import deliver
 
 
 MONITOR_BLOB = "harmony_monitoring"
@@ -32,10 +33,13 @@ class HarmonyMonitor(Monitor, ABC):
 
 
 class ConvertToPdfMonitor(HarmonyMonitor):
-    def __init__(self):
+    def __init__(self,username,key):
         super().__init__()
-        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
-                                        "harmony-input", "ocr-microservice-output")
+        self.username = username
+        self.key = key
+        self.input_container = "harmony-input"
+        self.output_container = "ocr-microservice-output"
+        self.blob_manager = BlobManager(username, key, self.input_container, self.output_container)
 
     def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
@@ -52,37 +56,50 @@ class ConvertToPdfMonitor(HarmonyMonitor):
     def test_file(self, file, env):
         # TODO add prod support
         address = self.get_address("CONVERT_TO_PDF", env)
-        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB}, headers={"Content-Type": "application/json"})
+        params = {"file_path": file, "blob_id": MONITOR_BLOB}
+        response = deliver.post(address, params, self.username, self.key, self.input_container,
+                                self.output_container)
         print(response.text)
         files = self.blob_manager.list_blob(MONITOR_BLOB)
         assert "in.pdf" in files or "out.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}"
 
 
-class IsSearchable(HarmonyMonitor):
-    def __init__(self):
+class IsSearchableMonitor(HarmonyMonitor):
+    def __init__(self,username,key):
         super().__init__()
-        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
-                                        "harmony-input", "ocr-microservice-output")
+        self.username = username
+        self.key = key
+        self.input_container = "harmony-input"
+        self.output_container = "ocr-microservice-output"
+        self.blob_manager = BlobManager(username, key, self.input_container, self.output_container)
 
-    def check_pulses(self):
+    def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
         is_searchable_and_non = list(filter(lambda x: x.startswith("searchable") or x.startswith("not-searchable"), files))
 
         for file in is_searchable_and_non:
-            is_searchable = self.test_file(file)
+            try:
+                is_searchable = self.test_file(file, env)
 
-            if is_searchable:
-                assert file.startswith("searchable") , f"The file isn't searchable -> {file}"
-            else:
-                assert file.startswith("not-searchable") , f"The file searchable -> {file}"
+                if is_searchable:
+                    assert file.startswith("searchable") , f"The file isn't searchable -> {file}"
+                else:
+                    assert file.startswith("not-searchable") , f"The file searchable -> {file}"
+            except Exception as e:
+                print(e)
+                pulse_error = PulseError(str(e), self.blob_manager.storage_account)
+                self.pulse_errors.append(pulse_error)
 
-    def test_file(self, file):
+    def test_file(self, file, env):
         self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
         self.blob_manager.put_in_blob(file, file, MONITOR_BLOB)
         os.remove(file)
 
-        address = self.get_address("IS_SEARCHABLE", "test")
-        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB},headers={"Content-Type": "application/json"})
+        address = self.get_address("IS_SEARCHABLE", env)
+        params = {"file_path": file, "blob_id": MONITOR_BLOB}
+        response = deliver.post(address, params, self.username, self.key, self.input_container,
+                                self.output_container)
+
         print(response.text)
 
         if response.ok:
@@ -90,16 +107,20 @@ class IsSearchable(HarmonyMonitor):
             print(result)
             return result.get("result", False)
         else:
-            raise Exception(f"We got a error for file ->{file}")
+            assert False, f"We got a error for file ->{file}"
 
 
-class Split_pdf(HarmonyMonitor):
-    def __init__(self):
+class SplitPdfMonitor(HarmonyMonitor):
+    def __init__(self,username,key):
         super().__init__()
-        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
-                                        "harmony-input", "ocr-microservice-output")
+        self.username = username
+        self.key = key
+        self.input_container = "harmony-input"
+        self.output_container = "ocr-microservice-output"
+        self.blob_manager = BlobManager(username, key, self.input_container, self.output_container)
 
-    def check_pulses(self):
+
+    def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
         is_split = list(filter(lambda x: x.startswith("split"), files))
         for file in is_split:
@@ -117,41 +138,54 @@ class Split_pdf(HarmonyMonitor):
         self.blob_manager.put_in_blob(file, file, MONITOR_BLOB)
         os.remove(file)
         address = self.get_address("SPLIT_PDF", "test")
-        response = requests.post(address, json={"file_path": file, "blob_id": MONITOR_BLOB,"output_folder": "pdf_parts"},
-                                 headers={"Content-Type": "application/json"})
+
+        params = {"file_path": file, "blob_id": MONITOR_BLOB, "output_folder": "pdf_parts"}
+        response = deliver.post(address, params, self.username, self.key, self.input_container,
+                                self.output_container)
+
 
 
         if response.ok:
             files = self.blob_manager.list_blob(MONITOR_BLOB,"pdf_parts", container_type="output")
             assert len(files) > 1, f"could not split pdf_parts -> {file}"
         else:
-            raise Exception(f"could not split a file {file}")
+            assert False, f"could not split to pdf -> file {file}"
 
 
 class EngineMonitor(HarmonyMonitor):
 
-    def __init__(self, engine):
+    def __init__(self, engine, username, key):
         super().__init__()
         self.engine = engine
         # self.get_address(engine)
-        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
-                                        "harmony-input", "ocr-microservice-output")
+        self.username = username
+        self.key = key
+        self.input_container = "harmony-input"
+        self.output_container = "ocr-microservice-output"
+        self.blob_manager = BlobManager(username, key, self.input_container, self.output_container)
 
-    def check_pulses(self):
+    def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
-        if self.engine == "RHYTHM":
-            is_process = list(filter(lambda x: x.startswith("searchable"), files))
 
-        else:
-            is_process = list(filter(lambda x: x.startswith("process"), files))
+        try:
 
-        for file in is_process:
-            is_process = self.test_file(file)
-            self.clear_blob()
+            if self.engine == "RHYTHM":
+                is_process = list(filter(lambda x: x.startswith("searchable"), files))
+
+            else:
+                is_process = list(filter(lambda x: x.startswith("process"), files))
+
+            for file in is_process:
+                is_process = self.test_file(file)
+                self.clear_blob()
 
             if is_process:
                 assert file.startwith("searchable") or file.startwith("process"), (f"The file isn't process to lsd ->"
-                                                                                   f" {file}")
+                                                                                       f" {file}")
+        except Exception as e:
+            print(e)
+            pulse_error = PulseError(str(e), self.blob_manager.storage_account)
+            self.pulse_errors.append(pulse_error)
 
 
     def test_file(self,file):
@@ -160,79 +194,92 @@ class EngineMonitor(HarmonyMonitor):
         self.blob_manager.put_in_blob(file, new_filename, MONITOR_BLOB)
         os.remove(file)
         address = self.get_address(self.engine, "test")
-        response = requests.post(address,
-                                 json={"file_path": new_filename, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False},
-                                 headers={"Content-Type": "application/json"})
+        params = {"file_path": file, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False}
+        response = deliver.post(address, params, self.username, self.key, self.input_container,
+                                self.output_container)
+
 
         if response.ok:
             files = self.blob_manager.list_blob(MONITOR_BLOB, "lsd_files", container_type="output")
             assert len(files) > 0, f"could not process lsd files -> {file}"
         else:
-            raise Exception(f"could not process a file {file}")
+            assert False, f"could not process a file {file}"
 
 
 class DocumentAiMonitor(EngineMonitor):
-    def __init__(self):
-        super().__init__("DOCUMENTAI_PART")
+    def __init__(self, username, key):
+        self.username = username
+        self.key = key
+        super().__init__("DOCUMENTAI_PART",username,key)
 
 class AzureDiMonitor(EngineMonitor):
-    def __init__(self):
-        super().__init__("AZUREDI_PART")
+    def __init__(self, username, key):
+        self.username = username
+        self.key = key
+        super().__init__("AZUREDI_PART",username,key)
 
-class RhythemMonitor(EngineMonitor):
-    def __init__(self):
-        super().__init__("RHYTHM")
+class RhythmMonitor(EngineMonitor):
+    def __init__(self, username, key):
+        self.username = username
+        self.key = key
+        super().__init__("RHYTHM",username,key)
 
 
 #EngineMonitor("DOCUMENTAI_PART"), EngineMonitor("AZUREDI_PART"), EngineMonitor("RHYTHM")
 
 
 class CombineMonitor(HarmonyMonitor):
-    def __init__(self, in_type, output_name):
+    def __init__(self, in_type, output_name, username, key):
         super().__init__()
         self.in_type = in_type
         self.output_name = output_name
-        self.blob_manager = BlobManager(os.getenv("STORAGE_ACCOUNT"), os.getenv("STORAGE_ACCOUNT_KEY"),
-                                        "harmony-input", "ocr-microservice-output")
+        self.username = username
+        self.key = key
+        self.input_container = "harmony-input"
+        self.output_container = "ocr-microservice-output"
+        self.blob_manager = BlobManager(username, key, self.input_container, self.output_container)
 
-    def check_pulses(self):
+    def check_pulses(self, env):
         files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="input")
         address = self.get_address(self.in_type, "test")
-        if self.in_type == "COMBINE_LSD":
-            is_combine = list(filter(lambda x: x.endswith("lsd"), files))
-            payload_key = "ocr_folders"
-            payload_value = ["lsd_files"]
-            folder = "lsd_files"
 
-        else:
-            is_combine = list(filter(lambda x: x.endswith("png"), files))
-            payload_key = "images_folder"
-            payload_value = "images"
-            folder = "images"
+        try:
 
-        for file in is_combine:
-            self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
-            self.blob_manager.put_in_blob(file, f"{folder}/{file}", MONITOR_BLOB)
+            if self.in_type == "COMBINE_LSD":
+                is_combine = list(filter(lambda x: x.endswith("lsd"), files))
+                payload_key = "ocr_folders"
+                payload_value = ["lsd_files"]
+                folder = "lsd_files"
 
+            else:
+                is_combine = list(filter(lambda x: x.endswith("png"), files))
+                payload_key = "images_folder"
+                payload_value = "images"
+                folder = "images"
 
-            os.remove(file)
-
-
-
-        response = requests.post(
-                address,
-                json={"file_path": file, "blob_id": MONITOR_BLOB,
-                      payload_key: payload_value},
-                headers={"Content-Type": "application/json"}
-            )
-
-        if response.ok:
-            files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="output")
-            assert self.output_name in files, f"could not combine files -> {folder}"
-        else:
-            raise Exception(f"could not combine a file {file}")
+            for file in is_combine:
+                self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
+                self.blob_manager.put_in_blob(file, f"{folder}/{file}", MONITOR_BLOB)
 
 
+                os.remove(file)
+
+            response = requests.post(
+                    address,
+                    json={"file_path": file, "blob_id": MONITOR_BLOB,
+                          payload_key: payload_value},
+                    headers={"Content-Type": "application/json"}
+                )
+
+            if response.ok:
+                files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="output")
+                assert self.output_name in files, f"could not combine files -> {folder}"
+            else:
+                assert False,f"could not combine a file {file}"
+        except Exception as e:
+            print(e)
+            pulse_error = PulseError(str(e), self.blob_manager.storage_account)
+            self.pulse_errors.append(pulse_error)
 
 
         self.clear_blob()
@@ -242,13 +289,13 @@ class CombineMonitor(HarmonyMonitor):
 
 
 class CombinePdfMonitor(CombineMonitor):
-    def __init__(self):
-        super().__init__("COMBINE_PDF", "out.pdf")
+    def __init__(self,username, key):
+        super().__init__("COMBINE_PDF", "out.pdf", username, key)
 
 
 class CombineLsdMonitor(CombineMonitor):
-    def __init__(self):
-        super().__init__("COMBINE_LSD", "ocr.lsd")
+    def __init__(self,username, key):
+        super().__init__("COMBINE_LSD", "ocr.lsd", username, key)
 
 
 

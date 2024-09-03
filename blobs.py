@@ -124,11 +124,14 @@ class BlobManager:
             for blob_file in blob_files:
                 self.output_client.delete_blob(f"{blob_id}/{blob_file}")
 
-    def delete_file_in_blob(self, blob_id, filename):
+    def delete_file_in_blob(self, filename, blob_id=None):
         if LOCAL_BLOBS:
             os.remove(os.path.join(blob_id, filename))
         else:
-            self.output_client.delete_blob(f"{blob_id}/{filename}")
+            if blob_id is not None:
+                self.output_client.delete_blob(f"{blob_id}/{filename}")
+            else:
+                self.output_client.delete_blob(filename)
 
     def rename_file_in_blob(self, blob_id, old_name, new_name):
         if LOCAL_BLOBS:
