@@ -49,17 +49,14 @@ class ConvertToPdfMonitor(HarmonyMonitor):
                 self.test_file(file, env)
                 self.clear_blob()
             except Exception as e:
-                print(e)
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
 
     def test_file(self, file, env):
-        # TODO add prod support
         address = self.get_address("CONVERT_TO_PDF", env)
         params = {"file_path": file, "blob_id": MONITOR_BLOB}
         response = deliver.post(address, params, self.username, self.key, self.input_container,
                                 self.output_container)
-        print(response.text)
         files = self.blob_manager.list_blob(MONITOR_BLOB)
         assert "in.pdf" in files or "out.pdf" in files, f"Couldn't CONVERT_TO_PDF the file: {file}"
 
@@ -86,7 +83,6 @@ class IsSearchableMonitor(HarmonyMonitor):
                 else:
                     assert file.startswith("not-searchable") , f"The file searchable -> {file}"
             except Exception as e:
-                print(e)
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
 
@@ -100,11 +96,8 @@ class IsSearchableMonitor(HarmonyMonitor):
         response = deliver.post(address, params, self.username, self.key, self.input_container,
                                 self.output_container)
 
-        print(response.text)
-
         if response.ok:
             result = response.json()
-            print(result)
             return result.get("result", False)
         else:
             assert False, f"We got a error for file ->{file}"
@@ -128,7 +121,6 @@ class SplitPdfMonitor(HarmonyMonitor):
                 self.test_file(file)
                 self.clear_blob()
             except Exception as e:
-                print(e)
                 pulse_error = PulseError(str(e), self.blob_manager.storage_account)
                 self.pulse_errors.append(pulse_error)
 
@@ -176,28 +168,26 @@ class EngineMonitor(HarmonyMonitor):
                 is_process = list(filter(lambda x: x.startswith("process"), files))
 
             for file in is_process:
-                is_process = self.test_file(file)
+                is_process = self.test_file(file, env)
                 self.clear_blob()
 
+            # TODO check why file here is yellow, fix
             if is_process:
                 assert file.startwith("searchable") or file.startwith("process"), (f"The file isn't process to lsd ->"
                                                                                        f" {file}")
         except Exception as e:
-            print(e)
             pulse_error = PulseError(str(e), self.blob_manager.storage_account)
             self.pulse_errors.append(pulse_error)
 
-
-    def test_file(self,file):
+    def test_file(self, file, env):
         self.blob_manager.get_from_blob(file, file, MONITOR_BLOB)
         new_filename = file.replace("process", "").replace("searchable", "")
         self.blob_manager.put_in_blob(file, new_filename, MONITOR_BLOB)
         os.remove(file)
-        address = self.get_address(self.engine, "test")
-        params = {"file_path": file, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False}
+        address = self.get_address(self.engine, env)
+        params = {"file_path": new_filename, "blob_id": MONITOR_BLOB, "output_folder": "lsd_files","output_images" : False}
         response = deliver.post(address, params, self.username, self.key, self.input_container,
                                 self.output_container)
-
 
         if response.ok:
             files = self.blob_manager.list_blob(MONITOR_BLOB, "lsd_files", container_type="output")
@@ -212,11 +202,13 @@ class DocumentAiMonitor(EngineMonitor):
         self.key = key
         super().__init__("DOCUMENTAI_PART",username,key)
 
+
 class AzureDiMonitor(EngineMonitor):
     def __init__(self, username, key):
         self.username = username
         self.key = key
-        super().__init__("AZUREDI_PART",username,key)
+        super().__init__("AZUREDI_PART", username, key)
+
 
 class RhythmMonitor(EngineMonitor):
     def __init__(self, username, key):
@@ -224,8 +216,6 @@ class RhythmMonitor(EngineMonitor):
         self.key = key
         super().__init__("RHYTHM",username,key)
 
-
-#EngineMonitor("DOCUMENTAI_PART"), EngineMonitor("AZUREDI_PART"), EngineMonitor("RHYTHM")
 
 
 class CombineMonitor(HarmonyMonitor):
@@ -264,12 +254,10 @@ class CombineMonitor(HarmonyMonitor):
 
                 os.remove(file)
 
-            response = requests.post(
-                    address,
-                    json={"file_path": file, "blob_id": MONITOR_BLOB,
-                          payload_key: payload_value},
-                    headers={"Content-Type": "application/json"}
-                )
+            # TODO check if None instead of file works here
+            params = {"file_path": file, "blob_id": MONITOR_BLOB, payload_key: payload_value}
+            response = deliver.post(address, params, self.username, self.key, self.input_container,
+                                    self.output_container)
 
             if response.ok:
                 files = self.blob_manager.list_blob(MONITOR_BLOB, container_type="output")
@@ -277,15 +265,10 @@ class CombineMonitor(HarmonyMonitor):
             else:
                 assert False,f"could not combine a file {file}"
         except Exception as e:
-            print(e)
             pulse_error = PulseError(str(e), self.blob_manager.storage_account)
             self.pulse_errors.append(pulse_error)
 
-
         self.clear_blob()
-
-
-#CombineMonitor("COMBINE_PDF","out.pdf"), CombineMonitor("COMBINE_LSD","ocr.lsd")
 
 
 class CombinePdfMonitor(CombineMonitor):
@@ -296,39 +279,3 @@ class CombinePdfMonitor(CombineMonitor):
 class CombineLsdMonitor(CombineMonitor):
     def __init__(self,username, key):
         super().__init__("COMBINE_LSD", "ocr.lsd", username, key)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

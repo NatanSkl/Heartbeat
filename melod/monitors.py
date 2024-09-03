@@ -13,6 +13,8 @@ class MelodMonitor(Monitor):
 
     def __init__(self,username,key):
         super().__init__()
+        self.username = username
+        self.key = key
         self.blob_manager1 = BlobManager(username,key,
                                         "ocr-microservice-output", "ocr-microservice-output")
         self.blob_manager2 = BlobManager(username,key,
@@ -22,18 +24,12 @@ class MelodMonitor(Monitor):
         return "https://melod-test.delightfulsky-3fe40ddd.northeurope.azurecontainerapps.io"
 
     def check_pulses(self, env):
-        # TODO list all lsd files in MONITOR_BLOB (container_type="input")
-        # TODO for each lsd file, for example, esna.lsd, copy it to f"{MONITOR_BLOB}_esna", and rename to ocr.lsd
-        # TODO run requests.get to run melod, with "fileName": f"{MONITOR_BLOB}_{lsd_name}.pdf"  (<lsd_name> for esna.lsd is esna)
-        # TODO list melod-outputs container and check that f"{MONITOR_BLOB}_{lsd_name}.mdma"
-        # TODO later with Natan, remove files after assert
-
         files = self.blob_manager1.list_blob(MONITOR_BLOB, container_type="input")
         lsd_files = list(filter(lambda x: x.endswith("lsd"), files))
 
         for file in lsd_files:
             lsd_name = file.replace('.lsd', '')
-            new_container = f"{MONITOR_BLOB}_{lsd_name}"
+            new_container = f"melod_submonitor_{lsd_name}"
 
             try:
                 full_path = os.path.abspath(file)
@@ -46,24 +42,17 @@ class MelodMonitor(Monitor):
 
                 r = requests.get(self.get_address(None, env),
                                  json={"layout": lsd_name, "version": MELOD_VERSION, "fileName": f"{new_container}.pdf",
-                                       "STORAGE_ACCOUNT": os.getenv("STORAGE_ACCOUNT"),
-                                       "STORAGE_ACCOUNT_KEY": os.getenv("STORAGE_ACCOUNT_KEY")})
-
+                                       "STORAGE_ACCOUNT": self.username,
+                                       "STORAGE_ACCOUNT_KEY": self.key})
 
                 r.raise_for_status()
 
                 output_files = self.blob_manager2.list_blob(new_container)
                 assert f"{new_container}.json" in output_files, "Expected output file is missing"
 
-                self.blob_manager2.delete_file_in_blob(f"{new_container}.json")
+                self.blob_manager2.delete_file_in_blob(f"{new_container}.json")  # TODO verify this deletes
+                print()
 
             except Exception as e:
-                print(f"Error processing {file}: {e}")
-
-
-
-
-
-
-
-
+                pulse_error = PulseError(str(e), self.blob_manager1.storage_account)
+                self.pulse_errors.append(pulse_error)
