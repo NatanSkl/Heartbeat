@@ -2,3 +2,4 @@
 venv/*
 __pycache__/*
 harmony/__pycache__/*
+*.pyc

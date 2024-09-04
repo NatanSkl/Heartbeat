@@ -1,5 +1,4 @@
 import os
-from abc import ABC
 import requests
 from monitoring import Monitor, PulseError
 from blobs import BlobManager
@@ -33,10 +32,7 @@ class MelodMonitor(Monitor):
 
             try:
                 full_path = os.path.abspath(file)
-                path = os.path.dirname(full_path)
-
                 self.blob_manager1.get_from_blob(file, file, MONITOR_BLOB)
-                #os.rename(full_path,full_path)
                 self.blob_manager1.put_in_blob(full_path, "ocr.lsd", new_container)
                 os.remove(file)
 
@@ -45,16 +41,13 @@ class MelodMonitor(Monitor):
                                        "STORAGE_ACCOUNT": self.username,
                                        "STORAGE_ACCOUNT_KEY": self.key})
 
-                r.raise_for_status()
-
-                output_files = self.blob_manager2.list_blob(new_container)
-                assert f"{new_container}.json" in output_files, "Expected output file is missing"
-                print(self.blob_manager2.list_blob(new_container))
+                if r.ok: #r.raise_for_status()
+                    output_files = self.blob_manager2.list_blob(new_container)
+                    assert f"{new_container}.json" in output_files, f"MELOD didn't work for {file}"
+                else:
+                    assert False, f"MELOD didn't work for {file}"
 
                 self.blob_manager2.delete_file_in_blob(f"{new_container}.json")  # TODO verify this deletes
-
-                print(self.blob_manager2.list_blob(f"{new_container}.json"))
-
             except Exception as e:
                 pulse_error = PulseError(str(e), self.blob_manager1.storage_account)
                 self.pulse_errors.append(pulse_error)
