@@ -24,11 +24,12 @@ class MelodMonitor(Monitor):
 
     def check_pulses(self, env):
         files = self.blob_manager1.list_blob(MONITOR_BLOB, container_type="input")
-        lsd_files = list(filter(lambda x: x.endswith("lsd"), files))
+        lsd_files = list(filter(lambda x: x.endswith("lsd") and "_" in x, files))
 
         for file in lsd_files:
-            lsd_name = file.replace('.lsd', '')
-            new_container = f"melod_submonitor_{lsd_name}"
+            display_name = file.replace('.lsd', '')
+            layout_name = display_name.split("_")[0]
+            new_container = f"melod_submonitor_{display_name}"
 
             try:
                 full_path = os.path.abspath(file)
@@ -37,7 +38,7 @@ class MelodMonitor(Monitor):
                 os.remove(file)
 
                 r = requests.get(self.get_address(None, env),
-                                 json={"layout": lsd_name, "version": MELOD_VERSION, "fileName": f"{new_container}.pdf",
+                                 json={"layout": layout_name, "version": MELOD_VERSION, "fileName": f"{new_container}.pdf",
                                        "STORAGE_ACCOUNT": self.username,
                                        "STORAGE_ACCOUNT_KEY": self.key})
 
